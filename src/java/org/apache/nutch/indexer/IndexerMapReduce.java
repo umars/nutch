@@ -16,36 +16,27 @@
  */
 package org.apache.nutch.indexer;
 
-import java.io.IOException;
-import java.util.Collection;
-import java.util.Iterator;
-
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configured;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
-import org.apache.hadoop.mapred.FileInputFormat;
-import org.apache.hadoop.mapred.JobConf;
-import org.apache.hadoop.mapred.Mapper;
-import org.apache.hadoop.mapred.OutputCollector;
-import org.apache.hadoop.mapred.Reducer;
-import org.apache.hadoop.mapred.Reporter;
-import org.apache.hadoop.mapred.SequenceFileInputFormat;
-import org.apache.nutch.crawl.CrawlDatum;
-import org.apache.nutch.crawl.CrawlDb;
-import org.apache.nutch.crawl.Inlinks;
-import org.apache.nutch.crawl.LinkDb;
-import org.apache.nutch.crawl.NutchWritable;
+import org.apache.hadoop.mapred.*;
+import org.apache.nutch.crawl.*;
 import org.apache.nutch.metadata.Metadata;
 import org.apache.nutch.metadata.Nutch;
 import org.apache.nutch.parse.Parse;
 import org.apache.nutch.parse.ParseData;
 import org.apache.nutch.parse.ParseImpl;
 import org.apache.nutch.parse.ParseText;
+import org.apache.nutch.protocol.Content;
 import org.apache.nutch.scoring.ScoringFilterException;
 import org.apache.nutch.scoring.ScoringFilters;
+
+import java.io.IOException;
+import java.util.Collection;
+import java.util.Iterator;
 
 public class IndexerMapReduce extends Configured
 implements Mapper<Text, Writable, Text, NutchWritable>,
@@ -75,10 +66,13 @@ implements Mapper<Text, Writable, Text, NutchWritable>,
     CrawlDatum fetchDatum = null;
     ParseData parseData = null;
     ParseText parseText = null;
+    Content rawContent = null;
     while (values.hasNext()) {
       final Writable value = values.next().get(); // unwrap
       if (value instanceof Inlinks) {
         inlinks = (Inlinks)value;
+      } else if (value instanceof Content) {
+        rawContent = (Content)value;
       } else if (value instanceof CrawlDatum) {
         final CrawlDatum datum = (CrawlDatum)value;
         if (CrawlDatum.hasDbStatus(datum))
@@ -121,6 +115,15 @@ implements Mapper<Text, Writable, Text, NutchWritable>,
 
     // add digest, used by dedup
     doc.add("digest", metadata.get(Nutch.SIGNATURE_KEY));
+
+    // add raw html content to doc
+    if (rawContent != null){
+      doc.add("raw_content" , new String(rawContent.getContent()));
+      doc.add("content_type", rawContent.getContentType());
+        LOG.warn("RAW Content ADDED" );
+    } else {
+        LOG.warn("No RAW Content " );
+    }
 
     final Parse parse = new ParseImpl(parseText, parseData);
     try {
@@ -174,6 +177,7 @@ implements Mapper<Text, Writable, Text, NutchWritable>,
       FileInputFormat.addInputPath(job, new Path(segment, CrawlDatum.PARSE_DIR_NAME));
       FileInputFormat.addInputPath(job, new Path(segment, ParseData.DIR_NAME));
       FileInputFormat.addInputPath(job, new Path(segment, ParseText.DIR_NAME));
+      FileInputFormat.addInputPath(job, new Path(segment, Content.DIR_NAME));
     }
 
     FileInputFormat.addInputPath(job, new Path(crawlDb, CrawlDb.CURRENT_NAME));
